@@ -7,6 +7,13 @@ console.log('Mkt Digital: Background script loaded');
 let activeCampaignId: string | null = null;
 let isPaused = false;
 
+// Initialize state from storage
+StorageService.getBackgroundState().then(state => {
+  activeCampaignId = state.activeCampaignId;
+  isPaused = state.isPaused;
+  console.log('Mkt Digital: State restored', state);
+});
+
 /**
  * Main campaign execution loop.
  */
@@ -18,11 +25,13 @@ async function runCampaign(campaignId: string) {
   
   activeCampaignId = campaignId;
   isPaused = false;
+  await StorageService.saveBackgroundState({ activeCampaignId, isPaused });
   
   const campaigns = await StorageService.getCampaigns();
   const campaignIndex = campaigns.findIndex(c => c.id === campaignId);
   if (campaignIndex === -1) {
     activeCampaignId = null;
+    await StorageService.saveBackgroundState({ activeCampaignId, isPaused });
     return;
   }
   const campaign = campaigns[campaignIndex];
@@ -43,10 +52,18 @@ async function runCampaign(campaignId: string) {
   let sentCount = 0;
 
   for (const groupName of targetGroups) {
-    if (activeCampaignId !== campaignId) break;
+    // Check if campaign was stopped
+    const currentState = await StorageService.getBackgroundState();
+    if (currentState.activeCampaignId !== campaignId) {
+      activeCampaignId = null;
+      break;
+    }
     
-    while (isPaused) {
-      await new Promise(r => setTimeout(r, 1000));
+    while (currentState.isPaused) {
+      await new Promise(r => setTimeout(r, 2000));
+      const updatedState = await StorageService.getBackgroundState();
+      if (updatedState.activeCampaignId !== campaignId) break;
+      if (!updatedState.isPaused) break;
     }
 
     // 1. Select Chat
@@ -166,6 +183,7 @@ async function runCampaign(campaignId: string) {
   delete campaign.nextActionAt;
   await StorageService.saveCampaigns(campaigns);
   activeCampaignId = null;
+  await StorageService.saveBackgroundState({ activeCampaignId, isPaused });
   
   chrome.notifications.create({
     type: 'basic',
@@ -191,16 +209,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'PAUSE_CAMPAIGN') {
     isPaused = true;
+    StorageService.saveBackgroundState({ activeCampaignId, isPaused });
     sendResponse({ success: true });
   }
 
   if (request.action === 'RESUME_CAMPAIGN') {
     isPaused = false;
+    StorageService.saveBackgroundState({ activeCampaignId, isPaused });
     sendResponse({ success: true });
   }
 
   if (request.action === 'STOP_CAMPAIGN') {
     activeCampaignId = null;
+    StorageService.saveBackgroundState({ activeCampaignId, isPaused });
     sendResponse({ success: true });
   }
 });

@@ -15,9 +15,9 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Chrome Extension Popup Size */
+/* Chrome Extension UI Size */
 html, body {
-  width: 800px;
-  height: 600px;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }

@@ -8,30 +8,33 @@ console.log('Mkt Digital: Content script loaded');
 // Selectors for WhatsApp Web elements (these may need updates as WA changes)
 const SELECTORS = {
   CHAT_LIST: '#pane-side',
-  SEARCH_INPUT: '#side div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"]',
-  CHAT_ITEM: 'div[role="row"]',
-  CHAT_NAME: 'span[title], div[title]',
-  CHAT_HEADER_NAME: '#main header span[title], #main header div[title], #main header div[role="button"] span[title]',
-  INPUT_FIELD: '#main footer div[contenteditable="true"]',
-  SEND_BUTTON: '#main footer span[data-icon="send"], #main footer button[aria-label="Send"], #main footer [data-testid="send"]',
-  ATTACH_BUTTON: '#main header span[data-icon="plus"], #main header span[data-icon="clip"], #main [data-testid="conversation-clip"], #main div[aria-label="Attach"], #main div[aria-label="Anexar"]',
+  SEARCH_INPUT: '#side div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"], #side .lexical-rich-text-input div[contenteditable="true"]',
+  CHAT_ITEM: 'div[role="row"], div[role="listitem"]',
+  CHAT_NAME: 'span[title], div[title], ._amie span',
+  CHAT_HEADER_NAME: '#main header span[title], #main header div[title], #main header div[role="button"] span[title], #main header ._amie span, #main header [data-testid="conversation-info-header"]',
+  INPUT_FIELD: '#main footer div[contenteditable="true"], #main footer .lexical-rich-text-input div[contenteditable="true"]',
+  SEND_BUTTON: '#main footer span[data-icon="send"], #main footer button[aria-label="Send"], #main footer [data-testid="send"], #main footer button span[data-icon="send"]',
+  ATTACH_BUTTON: '#main header span[data-icon="plus"], #main header span[data-icon="clip"], #main [data-testid="conversation-clip"], #main div[aria-label="Attach"], #main div[aria-label="Anexar"], #main header button[title="Attach"]',
   FILE_INPUT: 'input[type="file"]',
-  TYPING_INDICATOR: '#main header div[title="typing..."]',
-  SEARCH_CLEAR_BTN: 'button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"], span[data-icon="x-alt"], span[data-icon="search"]',
+  TYPING_INDICATOR: '#main header div[title="typing..."], #main header ._amie span:contains("typing")',
+  SEARCH_CLEAR_BTN: 'button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"], span[data-icon="x-alt"], span[data-icon="search"], button[aria-label="Back"]',
 };
 
 /**
  * Simulates a real click on an element.
  */
 function realClick(element: HTMLElement) {
-  const events = ['mousedown', 'mouseup', 'click'];
+  const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
   events.forEach(name => {
-    element.dispatchEvent(new MouseEvent(name, {
+    const eventType = name.startsWith('pointer') ? PointerEvent : MouseEvent;
+    element.dispatchEvent(new eventType(name, {
       bubbles: true,
       cancelable: true,
       view: window,
+      buttons: 1
     }));
   });
+  element.focus();
 }
 
 /**
@@ -161,44 +164,43 @@ function scrapeGroups() {
   
   // Try multiple selectors for chat items
   let items = Array.from(document.querySelectorAll(SELECTORS.CHAT_ITEM));
-  if (items.length === 0) {
-    items = Array.from(document.querySelectorAll('div[role="listitem"]'));
-  }
   
   console.log(`Mkt Digital: Found ${items.length} potential chat items`);
   
   items.forEach(item => {
     const nameEl = item.querySelector(SELECTORS.CHAT_NAME);
-    const name = nameEl?.getAttribute('title');
+    const name = nameEl?.getAttribute('title') || nameEl?.textContent;
     
     if (name) {
       // Check if it's likely a group
       // 1. Check for group icon
       const hasGroupIcon = !!item.querySelector('span[data-icon="default-group"]') || 
-                           !!item.querySelector('span[data-icon="business-group"]');
+                           !!item.querySelector('span[data-icon="business-group"]') ||
+                           !!item.querySelector('span[data-icon="community"]');
       
       // 2. Check aria-label for "group" or "grupo"
       const ariaLabel = item.getAttribute('aria-label')?.toLowerCase() || '';
       const isGroupLabel = ariaLabel.includes('group') || ariaLabel.includes('grupo');
 
-      // If it has a group icon or label, it's definitely a group
-      // If not, we still capture it but maybe it's a contact
-      // The user said "only some contacts appear", so they might want to see everything
-      // but we should prioritize groups.
+      // 3. Check for "You" or "Você" (personal chat)
+      const isPersonal = name === 'Você' || name === 'You';
       
-      if (isGroupLabel || hasGroupIcon || !/^\+?\d[\d\s-]{7,20}$/.test(name)) {
+      if (!isPersonal && (isGroupLabel || hasGroupIcon || !/^\+?\d[\d\s-]{7,20}$/.test(name))) {
         groups.push({
           id: name,
           name: name,
-          lastMessage: '',
+          lastMessage: item.querySelector('span[data-testid="last-msg-status"]')?.parentElement?.textContent || '',
           isGroup: isGroupLabel || hasGroupIcon
         });
       }
     }
   });
   
-  console.log(`Mkt Digital: Scraped ${groups.length} groups/chats`);
-  return groups;
+  // Remove duplicates
+  const uniqueGroups = Array.from(new Map(groups.map(g => [g.name, g])).values());
+  
+  console.log(`Mkt Digital: Scraped ${uniqueGroups.length} unique groups/chats`);
+  return uniqueGroups;
 }
 
 /**
@@ -212,81 +214,28 @@ function injectUI() {
   container.id = 'mkt-digital-container';
   container.style.cssText = `
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     z-index: 10000;
-    width: 95vw;
-    height: 90vh;
-    max-width: 1200px;
-    max-height: 800px;
-    background: white;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.3);
-    border-radius: 16px;
-    overflow: hidden;
+    background: #09090b;
     display: none;
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    border: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   `;
 
   const iframe = document.createElement('iframe');
   iframe.src = chrome.runtime.getURL('index.html');
   iframe.style.cssText = `
     width: 100%;
-    height: calc(100% - 40px);
+    height: 100%;
     border: none;
   `;
 
-  // Draggable Header
-  const header = document.createElement('div');
-  header.style.cssText = `
-    height: 40px;
-    background: #f8fafc;
-    cursor: move;
-    display: flex;
-    align-items: center;
-    padding: 0 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #64748b;
-    border-bottom: 1px solid #e2e8f0;
-    user-select: none;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  `;
-  header.innerText = 'Mkt Digital - Arraste para mover';
-
-  container.appendChild(header);
   container.appendChild(iframe);
   document.body.appendChild(container);
-
-  // Dragging logic
-  let isDragging = false;
-  let startX: number, startY: number, startLeft: number, startTop: number;
-
-  header.onmousedown = (e) => {
-    isDragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    const rect = container.getBoundingClientRect();
-    startLeft = rect.left;
-    startTop = rect.top;
-    container.style.transform = 'none';
-    container.style.left = startLeft + 'px';
-    container.style.top = startTop + 'px';
-    e.preventDefault();
-  };
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    container.style.left = (startLeft + dx) + 'px';
-    container.style.top = (startTop + dy) + 'px';
-  });
-
-  document.addEventListener('mouseup', () => {
-    isDragging = false;
-  });
 
   // Create toggle button
   const toggleBtn = document.createElement('div');
@@ -333,6 +282,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (container) {
       const isVisible = container.style.display === 'block';
       container.style.display = isVisible ? 'none' : 'block';
+    }
+    sendResponse({ success: true });
+  }
+
+  if (request.action === 'RESIZE_UI') {
+    const container = document.getElementById('mkt-digital-container');
+    if (container) {
+      if (request.size === 'small') {
+        container.style.width = '800px';
+        container.style.height = '600px';
+        container.style.top = '50%';
+        container.style.left = '50%';
+        container.style.transform = 'translate(-50%, -50%)';
+        container.style.borderRadius = '24px';
+        container.style.overflow = 'hidden';
+      } else {
+        container.style.width = '100vw';
+        container.style.height = '100vh';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.transform = 'none';
+        container.style.borderRadius = '0';
+      }
     }
     sendResponse({ success: true });
   }

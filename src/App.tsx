@@ -34,7 +34,9 @@ import {
   Image as ImageIcon,
   TrendingUp,
   Globe,
-  ExternalLink
+  ExternalLink,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -136,30 +138,6 @@ const CountdownTimer = ({ targetTime }: { targetTime: number }) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Load persisted tab on mount
-  useEffect(() => {
-    const loadTab = async () => {
-      try {
-        const result = await chrome.storage.local.get(['activeTab']);
-        if (result.activeTab) {
-          setActiveTab(result.activeTab);
-        }
-      } catch (e) {
-        // Ignore
-      }
-    };
-    loadTab();
-  }, []);
-
-  // Persist tab on change
-  useEffect(() => {
-    try {
-      chrome.storage.local.set({ activeTab });
-    } catch (e) {
-      // Ignore
-    }
-  }, [activeTab]);
-
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
@@ -172,6 +150,50 @@ export default function App() {
   const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
   const groupDropdownRef = useRef<HTMLDivElement>(null);
   const [manualGroupName, setManualGroupName] = useState('');
+  const [uiSize, setUiSize] = useState<'full' | 'small'>('full');
+
+  const isExtension = () => typeof chrome !== 'undefined' && !!chrome.tabs && !!chrome.runtime;
+
+  // Load persisted state on mount
+  useEffect(() => {
+    const loadState = async () => {
+      try {
+        const result = await chrome.storage.local.get(['activeTab', 'showNewCampaignModal', 'selectedGroupIds', 'uiSize']);
+        if (result.activeTab) {
+          setActiveTab(result.activeTab);
+        }
+        if (result.showNewCampaignModal !== undefined) {
+          setShowNewCampaignModal(result.showNewCampaignModal);
+        }
+        if (result.selectedGroupIds) {
+          setSelectedGroupIds(result.selectedGroupIds);
+        }
+        if (result.uiSize) {
+          setUiSize(result.uiSize);
+          // Apply size to container
+          if (isExtension()) {
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              if (tabs[0]?.id) {
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'RESIZE_UI', size: result.uiSize });
+              }
+            });
+          }
+        }
+      } catch (e) {
+        // Ignore
+      }
+    };
+    loadState();
+  }, []);
+
+  // Persist state on change
+  useEffect(() => {
+    try {
+      chrome.storage.local.set({ activeTab, showNewCampaignModal, selectedGroupIds, uiSize });
+    } catch (e) {
+      // Ignore
+    }
+  }, [activeTab, showNewCampaignModal, selectedGroupIds, uiSize]);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info'} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -525,28 +547,69 @@ export default function App() {
     }
   };
 
-  const isExtension = () => typeof chrome !== 'undefined' && !!chrome.tabs && !!chrome.runtime;
+  const clearLogs = async () => {
+    if (confirm('Tem certeza que deseja limpar todo o histórico de atividades?')) {
+      await StorageService.saveLogs([]);
+      setLogs([]);
+      setNotification({ message: 'Histórico limpo com sucesso!', type: 'success' });
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const exportGroups = () => {
+    if (groups.length === 0) {
+      setNotification({ message: 'Nenhum grupo para exportar.', type: 'info' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    const content = groups.map(g => g.name).join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `whatsapp_groups_${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setNotification({ message: 'Lista de grupos exportada com sucesso!', type: 'success' });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const scrapeGroups = async () => {
     if (!isExtension()) {
-      alert('Esta funcionalidade requer a extensão instalada.');
+      setNotification({ message: 'Esta funcionalidade requer a extensão instalada.', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
       return;
     }
     const tabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
     if (tabs.length === 0) {
-      alert('Por favor, abra o WhatsApp Web primeiro.');
+      setNotification({ message: 'Por favor, abra o WhatsApp Web primeiro.', type: 'info' });
+      setTimeout(() => setNotification(null), 3000);
       return;
     }
     
+    setNotification({ message: 'Capturando grupos do WhatsApp Web... Por favor, aguarde.', type: 'info' });
+    
     chrome.tabs.sendMessage(tabs[0].id!, { action: 'SCRAPE_GROUPS' }, async (response) => {
-      if (response?.groups) {
+      if (response?.groups && response.groups.length > 0) {
         const existing = await StorageService.getGroups();
+        // Merge logic: keep existing properties for groups with same name
         const newGroups = response.groups.map((g: any) => {
           const found = existing.find(ex => ex.name === g.name);
-          return found || { ...g, lists: [], isFavorite: false, isExcluded: false };
+          return found ? { ...found, ...g } : { ...g, id: crypto.randomUUID(), lists: [], isFavorite: false, isExcluded: false };
         });
-        await StorageService.saveGroups(newGroups);
-        setGroups(newGroups);
+        
+        // Add groups that were already in storage but not found in current scrape (optional, but safer)
+        const allGroups = [...newGroups];
+        existing.forEach(ex => {
+          if (!allGroups.find(g => g.name === ex.name)) {
+            allGroups.push(ex);
+          }
+        });
+
+        await StorageService.saveGroups(allGroups);
+        setGroups(allGroups);
         setNotification({ message: `${response.groups.length} grupos capturados com sucesso!`, type: 'success' });
         setTimeout(() => setNotification(null), 3000);
       } else {
@@ -581,6 +644,18 @@ export default function App() {
   };
 
   // --- Renderers ---
+
+  const toggleUiSize = () => {
+    const newSize = uiSize === 'full' ? 'small' : 'full';
+    setUiSize(newSize);
+    if (isExtension()) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'RESIZE_UI', size: newSize });
+        }
+      });
+    }
+  };
 
   const handleClose = () => {
     try {
@@ -813,6 +888,15 @@ export default function App() {
             className="hidden" 
           />
           <button 
+            onClick={exportGroups}
+            className={`flex items-center space-x-2 ${
+              settings?.theme === 'dark' ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700' : 'bg-white hover:bg-zinc-50 border-zinc-200'
+            } border px-4 py-2 rounded-lg transition-colors text-sm font-medium`}
+          >
+            <Download size={18} />
+            <span>Exportar Lista</span>
+          </button>
+          <button 
             onClick={() => fileInputRef.current?.click()}
             className={`flex items-center space-x-2 ${
               settings?.theme === 'dark' ? 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700' : 'bg-white hover:bg-zinc-50 border-zinc-200'
@@ -843,11 +927,29 @@ export default function App() {
               }`}
             />
           </div>
-          <button className={`p-2 border rounded-lg transition-colors ${
-            settings?.theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-500 hover:text-zinc-900'
-          }`}>
-            <Filter size={20} />
-          </button>
+          <div className="flex items-center space-x-2">
+            {selectedGroupIds.length > 0 && (
+              <button 
+                onClick={() => {
+                  const selectedNames = groups
+                    .filter(g => selectedGroupIds.includes(g.id))
+                    .map(g => g.name);
+                  setNewCampaign(prev => ({ ...prev, selectedGroups: selectedNames }));
+                  setShowNewCampaignModal(true);
+                  setActiveTab('campaigns');
+                }}
+                className="flex items-center space-x-2 bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 px-4 py-2 rounded-lg hover:bg-emerald-600/20 transition-all"
+              >
+                <Send size={18} />
+                <span>Criar Campanha ({selectedGroupIds.length})</span>
+              </button>
+            )}
+            <button className={`p-2 border rounded-lg transition-colors ${
+              settings?.theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-500 hover:text-zinc-900'
+            }`}>
+              <Filter size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -1146,6 +1248,18 @@ export default function App() {
 
   const renderHistory = () => (
     <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Histórico de Atividades</h2>
+        {logs.length > 0 && (
+          <button 
+            onClick={clearLogs}
+            className="flex items-center space-x-2 bg-rose-600/10 text-rose-500 border border-rose-500/20 px-4 py-2 rounded-lg hover:bg-rose-600/20 transition-all text-sm font-medium"
+          >
+            <Trash2 size={16} />
+            <span>Limpar Histórico</span>
+          </button>
+        )}
+      </div>
       <Card theme={settings?.theme} className="p-0 overflow-hidden border-zinc-800/50">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse">
@@ -1469,14 +1583,23 @@ export default function App() {
       <aside className={`w-64 ${
         settings?.theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
       } border-r p-6 flex flex-col transition-colors duration-300 relative`}>
-        {/* Close Button for Injected UI */}
-        <button 
-          onClick={handleClose}
-          className="absolute top-4 right-4 p-1 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
-          title="Fechar"
-        >
-          <X size={20} />
-        </button>
+        {/* Top Actions */}
+        <div className="absolute top-4 right-4 flex items-center space-x-1">
+          <button 
+            onClick={toggleUiSize}
+            className="p-1.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
+            title={uiSize === 'full' ? "Diminuir Tela" : "Aumentar Tela"}
+          >
+            {uiSize === 'full' ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+          <button 
+            onClick={handleClose}
+            className="p-1.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
         <div className="flex flex-col mb-10 px-2">
           <div className="flex items-center space-x-3 mb-2">

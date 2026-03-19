@@ -85,4 +85,28 @@ export class StorageService {
     }
     await chrome.storage.local.set({ logs: slicedLogs }); // Keep last 1000
   }
+
+  static async saveLogs(logs: LogEntry[]): Promise<void> {
+    if (!this.isExtension()) {
+      localStorage.setItem('logs', JSON.stringify(logs));
+      return;
+    }
+    await chrome.storage.local.set({ logs });
+  }
+
+  static async getBackgroundState(): Promise<{ activeCampaignId: string | null, isPaused: boolean }> {
+    if (!this.isExtension()) {
+      return { activeCampaignId: null, isPaused: false };
+    }
+    const data = await chrome.storage.local.get(['activeCampaignId', 'isPaused']);
+    return {
+      activeCampaignId: (data.activeCampaignId as string) || null,
+      isPaused: !!data.isPaused
+    };
+  }
+
+  static async saveBackgroundState(state: { activeCampaignId: string | null, isPaused: boolean }): Promise<void> {
+    if (!this.isExtension()) return;
+    await chrome.storage.local.set(state);
+  }
 }
