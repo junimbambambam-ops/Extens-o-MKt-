@@ -13,16 +13,16 @@
     "https://web.whatsapp.com/*"
   ],
   "action": {
-    "default_popup": "index.html"
+    "default_popup": "dist/index.html"
   },
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "dist/background.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["https://web.whatsapp.com/*"],
-      "js": ["content.js"]
+      "js": ["dist/content.js"]
     }
   ]
 }
