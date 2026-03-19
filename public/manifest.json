@@ -24,5 +24,11 @@
       "matches": ["https://web.whatsapp.com/*"],
       "js": ["content.js"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["index.html", "assets/*", "background.js", "content.js"],
+      "matches": ["https://web.whatsapp.com/*"]
+    }
   ]
 }

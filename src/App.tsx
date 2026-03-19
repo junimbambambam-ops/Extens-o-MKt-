@@ -138,6 +138,31 @@ const CountdownTimer = ({ targetTime }: { targetTime: number }) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Load persisted tab on mount
+  useEffect(() => {
+    const loadTab = async () => {
+      try {
+        const result = await chrome.storage.local.get(['activeTab']);
+        if (result.activeTab) {
+          setActiveTab(result.activeTab);
+        }
+      } catch (e) {
+        // Ignore
+      }
+    };
+    loadTab();
+  }, []);
+
+  // Persist tab on change
+  useEffect(() => {
+    try {
+      chrome.storage.local.set({ activeTab });
+    } catch (e) {
+      // Ignore
+    }
+  }, [activeTab]);
+
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
@@ -284,6 +309,40 @@ export default function App() {
       spintax: true
     }
   });
+
+  // Load persisted campaign data on mount
+  useEffect(() => {
+    const loadPersistedData = async () => {
+      try {
+        const result = await chrome.storage.local.get(['persistedNewCampaign']) as { persistedNewCampaign?: any };
+        if (result.persistedNewCampaign) {
+          // Note: File objects cannot be persisted directly in storage.local easily as blobs
+          // We only restore the text fields
+          setNewCampaign(prev => ({
+            ...prev,
+            ...(result.persistedNewCampaign as object),
+            media: null // Media must be re-selected for security reasons in browser
+          }));
+        }
+      } catch (e) {
+        console.log('Not in extension environment or storage failed');
+      }
+    };
+    loadPersistedData();
+  }, []);
+
+  // Persist campaign data on change
+  useEffect(() => {
+    const persistData = async () => {
+      try {
+        const { media, ...dataToPersist } = newCampaign;
+        await chrome.storage.local.set({ persistedNewCampaign: dataToPersist });
+      } catch (e) {
+        // Ignore
+      }
+    };
+    persistData();
+  }, [newCampaign]);
 
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
 
@@ -525,6 +584,14 @@ export default function App() {
   };
 
   // --- Renderers ---
+
+  const handleClose = () => {
+    try {
+      chrome.runtime.sendMessage({ action: 'CLOSE_UI' });
+    } catch (e) {
+      console.log('Not in extension environment');
+    }
+  };
 
   const renderDashboard = () => {
     const activeCampaigns = campaigns.filter(c => c.status === 'running');
@@ -1375,7 +1442,16 @@ export default function App() {
       {/* Sidebar */}
       <aside className={`w-64 ${
         settings?.theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
-      } border-r p-6 flex flex-col transition-colors duration-300`}>
+      } border-r p-6 flex flex-col transition-colors duration-300 relative`}>
+        {/* Close Button for Injected UI */}
+        <button 
+          onClick={handleClose}
+          className="absolute top-4 right-4 p-1 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
+          title="Fechar"
+        >
+          <X size={20} />
+        </button>
+
         <div className="flex flex-col mb-10 px-2 space-y-1">
           <div className="flex items-center space-x-3">
             <Logo />
