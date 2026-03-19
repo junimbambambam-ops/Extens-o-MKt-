@@ -8,7 +8,7 @@ console.log('WhatsGroup Pro: Content script loaded');
 // Selectors for WhatsApp Web elements (these may need updates as WA changes)
 const SELECTORS = {
   CHAT_LIST: '#pane-side',
-  CHAT_ITEM: 'div[role="listitem"]',
+  CHAT_ITEM: 'div[role="row"]', // More stable selector for chat items
   CHAT_NAME: 'span[title]',
   INPUT_FIELD: 'footer div[contenteditable="true"]',
   SEND_BUTTON: 'footer button span[data-icon="send"]',
@@ -21,14 +21,21 @@ const SELECTORS = {
  * Sends a file to the currently active chat.
  */
 async function sendFile(file: File, caption?: string) {
+  console.log('WhatsGroup Pro: Attempting to send file', file.name);
   const attachBtn = document.querySelector(SELECTORS.ATTACH_BUTTON) as HTMLElement;
-  if (!attachBtn) throw new Error('Attach button not found');
+  if (!attachBtn) {
+    // Try alternative selector for attach button
+    const altAttachBtn = document.querySelector('div[aria-label="Anexar"]') as HTMLElement;
+    if (!altAttachBtn) throw new Error('Botão de anexo não encontrado');
+    altAttachBtn.click();
+  } else {
+    attachBtn.click();
+  }
   
-  attachBtn.click();
   await new Promise(r => setTimeout(r, 1000));
 
   const fileInput = document.querySelector(SELECTORS.FILE_INPUT) as HTMLInputElement;
-  if (!fileInput) throw new Error('File input not found');
+  if (!fileInput) throw new Error('Campo de seleção de arquivo não encontrado');
 
   const dataTransfer = new DataTransfer();
   dataTransfer.items.add(file);
@@ -74,8 +81,9 @@ async function simulateTyping(text: string, element: HTMLElement) {
  * Sends a message to the currently active chat.
  */
 async function sendMessage(text: string, simulate: boolean = true) {
+  console.log('WhatsGroup Pro: Sending message', text.substring(0, 20) + '...');
   const input = document.querySelector(SELECTORS.INPUT_FIELD) as HTMLElement;
-  if (!input) throw new Error('Input field not found');
+  if (!input) throw new Error('Campo de mensagem não encontrado');
 
   if (simulate) {
     await simulateTyping(text, input);
@@ -104,24 +112,33 @@ async function sendMessage(text: string, simulate: boolean = true) {
  * Scrapes groups from the sidebar.
  */
 function scrapeGroups() {
+  console.log('WhatsGroup Pro: Starting group scraping...');
   const groups: any[] = [];
-  const items = document.querySelectorAll(SELECTORS.CHAT_ITEM);
+  
+  // Try multiple selectors for chat items
+  let items = document.querySelectorAll(SELECTORS.CHAT_ITEM);
+  if (items.length === 0) {
+    items = document.querySelectorAll('div[role="listitem"]');
+  }
+  
+  console.log(`WhatsGroup Pro: Found ${items.length} potential chat items`);
   
   items.forEach(item => {
     const nameEl = item.querySelector(SELECTORS.CHAT_NAME);
     const name = nameEl?.getAttribute('title');
-    // Simple heuristic: groups usually don't have phone numbers as titles
-    // and often have a specific icon or structure. 
-    // For now, we capture all and let the user filter.
+    
     if (name) {
+      // Basic check to avoid capturing phone numbers as groups (optional)
+      // Groups usually have names, phone numbers are just digits/symbols
       groups.push({
-        id: name, // In a real scenario, we'd need a more stable ID
+        id: name,
         name: name,
-        lastMessage: '', // Scrape if possible
+        lastMessage: '',
       });
     }
   });
   
+  console.log(`WhatsGroup Pro: Scraped ${groups.length} groups/chats`);
   return groups;
 }
 

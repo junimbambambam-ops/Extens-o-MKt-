@@ -20,7 +20,15 @@ import {
   LayoutDashboard,
   Sun,
   Moon,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw,
+  Check,
+  Info,
+  CheckCircle2,
+  XCircle,
+  ChevronRight,
+  FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StorageService } from './services/storageService';
@@ -80,7 +88,44 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showNewCampaignModal, setShowNewCampaignModal] = useState(false);
   const [groupSearchQuery, setGroupSearchQuery] = useState('');
+  const [manualGroupName, setManualGroupName] = useState('');
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info'} | null>(null);
+
+  const addManualGroup = async () => {
+    if (!manualGroupName.trim()) return;
+    const groupName = manualGroupName.trim();
+    
+    // Check if group already exists
+    if (groups.some(g => g.name.toLowerCase() === groupName.toLowerCase())) {
+      setNotification({ message: 'Este grupo já existe na lista.', type: 'info' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    const newGroup: Group = {
+      id: groupName,
+      name: groupName,
+      lastMessage: '',
+      lists: [],
+      isFavorite: false,
+      isExcluded: false
+    };
+    
+    const updated = [...groups, newGroup];
+    await StorageService.saveGroups(updated);
+    setGroups(updated);
+    
+    if (showNewCampaignModal) {
+      setNewCampaign(prev => ({
+        ...prev,
+        selectedGroups: [...prev.selectedGroups, groupName]
+      }));
+    }
+
+    setManualGroupName('');
+    setNotification({ message: 'Grupo adicionado com sucesso!', type: 'success' });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const closeNewCampaignModal = () => {
     setShowNewCampaignModal(false);
@@ -268,6 +313,11 @@ export default function App() {
         });
         await StorageService.saveGroups(newGroups);
         setGroups(newGroups);
+        setNotification({ message: `${response.groups.length} grupos capturados com sucesso!`, type: 'success' });
+        setTimeout(() => setNotification(null), 3000);
+      } else {
+        setNotification({ message: 'Nenhum grupo encontrado. Tente rolar a lista no WhatsApp Web.', type: 'info' });
+        setTimeout(() => setNotification(null), 4000);
       }
     });
   };
@@ -522,8 +572,51 @@ export default function App() {
             <tbody className={`divide-y ${settings?.theme === 'dark' ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
               {groups.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-12 text-center text-zinc-600">
-                    Nenhum grupo capturado. Clique em "Capturar Grupos" no WhatsApp Web.
+                  <td colSpan={4} className="py-12 text-center">
+                    <div className="max-w-md mx-auto space-y-4">
+                      <div className={`p-6 rounded-2xl border ${settings?.theme === 'dark' ? 'bg-zinc-800/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                        <Users size={48} className="mx-auto mb-4 opacity-20" />
+                        <p className={`mb-4 font-medium ${settings?.theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          Nenhum grupo capturado ainda.
+                        </p>
+                        <div className="flex flex-col space-y-3">
+                          <button 
+                            onClick={scrapeGroups}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2"
+                          >
+                            <RefreshCw size={18} />
+                            <span>Capturar do WhatsApp Web</span>
+                          </button>
+                          
+                          <div className="relative">
+                            <div className="absolute inset-0 flex items-center">
+                              <span className="w-full border-t border-zinc-700 opacity-20"></span>
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                              <span className={`${settings?.theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} px-2 text-zinc-500`}>Ou adicione manualmente</span>
+                            </div>
+                          </div>
+
+                          <div className="flex space-x-2">
+                            <input
+                              type="text"
+                              placeholder="Nome exato do grupo..."
+                              value={manualGroupName}
+                              onChange={e => setManualGroupName(e.target.value)}
+                              className={`flex-1 ${
+                                settings?.theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : 'bg-white border-zinc-200'
+                              } border rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 transition-all`}
+                            />
+                            <button
+                              onClick={addManualGroup}
+                              className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors border border-zinc-700"
+                            >
+                              Adicionar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -1145,8 +1238,30 @@ export default function App() {
                           </button>
                         ))}
                       {groups.filter(g => g.name.toLowerCase().includes(groupSearchQuery.toLowerCase())).length === 0 && (
-                        <div className={`col-span-2 py-4 text-center ${settings?.theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'} text-xs italic`}>
-                          Nenhum grupo encontrado.
+                        <div className="col-span-2 py-4 text-center">
+                          <p className={`${settings?.theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'} text-xs italic mb-3`}>
+                            Nenhum grupo encontrado.
+                          </p>
+                          <div className="flex flex-col space-y-2 px-2">
+                            <p className="text-[10px] uppercase font-bold text-zinc-500 text-left">Adicionar Manualmente:</p>
+                            <div className="flex space-x-2">
+                              <input
+                                type="text"
+                                placeholder="Nome exato do grupo..."
+                                value={manualGroupName}
+                                onChange={e => setManualGroupName(e.target.value)}
+                                className={`flex-1 ${
+                                  settings?.theme === 'dark' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-50 border-zinc-200'
+                                } border rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-500`}
+                              />
+                              <button
+                                onClick={addManualGroup}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                              >
+                                Adicionar
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1196,6 +1311,20 @@ export default function App() {
           background: #3f3f46;
         }
       `}} />
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-[100] animate-in slide-in-from-bottom-4 duration-300">
+          <div className={`flex items-center space-x-3 px-6 py-4 rounded-2xl shadow-2xl border ${
+            notification.type === 'success' 
+              ? 'bg-emerald-500 border-emerald-400 text-white' 
+              : 'bg-sky-500 border-sky-400 text-white'
+          }`}>
+            <div className="bg-white/20 p-1.5 rounded-lg">
+              {notification.type === 'success' ? <Check size={20} /> : <Info size={20} />}
+            </div>
+            <p className="font-bold text-sm tracking-wide">{notification.message}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
