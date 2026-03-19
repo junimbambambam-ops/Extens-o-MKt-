@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "WhatsGroup Pro",
+  "name": "Mkt Digital - www.mktdigital.uk",
   "version": "1.0.0",
-  "description": "Gerenciamento avançado de grupos e automação inteligente para WhatsApp Web.",
+  "description": "Advanced WhatsApp Web group management and smart automation extension with anti-ban protection. Visit us at www.mktdigital.uk",
   "permissions": [
     "storage",
     "tabs",

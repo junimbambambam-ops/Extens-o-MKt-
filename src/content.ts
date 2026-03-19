@@ -3,7 +3,7 @@
  * This script runs in the context of web.whatsapp.com.
  */
 
-console.log('WhatsGroup Pro: Content script loaded');
+console.log('Mkt Digital: Content script loaded');
 
 // Selectors for WhatsApp Web elements (these may need updates as WA changes)
 const SELECTORS = {
@@ -21,7 +21,7 @@ const SELECTORS = {
  * Sends a file to the currently active chat.
  */
 async function sendFile(file: File, caption?: string) {
-  console.log('WhatsGroup Pro: Attempting to send file', file.name);
+  console.log('Mkt Digital: Attempting to send file', file.name);
   const attachBtn = document.querySelector(SELECTORS.ATTACH_BUTTON) as HTMLElement;
   if (!attachBtn) {
     // Try alternative selector for attach button
@@ -81,7 +81,7 @@ async function simulateTyping(text: string, element: HTMLElement) {
  * Sends a message to the currently active chat.
  */
 async function sendMessage(text: string, simulate: boolean = true) {
-  console.log('WhatsGroup Pro: Sending message', text.substring(0, 20) + '...');
+  console.log('Mkt Digital: Sending message', text.substring(0, 20) + '...');
   const input = document.querySelector(SELECTORS.INPUT_FIELD) as HTMLElement;
   if (!input) throw new Error('Campo de mensagem não encontrado');
 
@@ -112,33 +112,48 @@ async function sendMessage(text: string, simulate: boolean = true) {
  * Scrapes groups from the sidebar.
  */
 function scrapeGroups() {
-  console.log('WhatsGroup Pro: Starting group scraping...');
+  console.log('Mkt Digital: Starting group scraping...');
   const groups: any[] = [];
   
   // Try multiple selectors for chat items
-  let items = document.querySelectorAll(SELECTORS.CHAT_ITEM);
+  let items = Array.from(document.querySelectorAll(SELECTORS.CHAT_ITEM));
   if (items.length === 0) {
-    items = document.querySelectorAll('div[role="listitem"]');
+    items = Array.from(document.querySelectorAll('div[role="listitem"]'));
   }
   
-  console.log(`WhatsGroup Pro: Found ${items.length} potential chat items`);
+  console.log(`Mkt Digital: Found ${items.length} potential chat items`);
   
   items.forEach(item => {
     const nameEl = item.querySelector(SELECTORS.CHAT_NAME);
     const name = nameEl?.getAttribute('title');
     
     if (name) {
-      // Basic check to avoid capturing phone numbers as groups (optional)
-      // Groups usually have names, phone numbers are just digits/symbols
-      groups.push({
-        id: name,
-        name: name,
-        lastMessage: '',
-      });
+      // Check if it's likely a group
+      // 1. Check for group icon
+      const hasGroupIcon = !!item.querySelector('span[data-icon="default-group"]') || 
+                           !!item.querySelector('span[data-icon="business-group"]');
+      
+      // 2. Check aria-label for "group" or "grupo"
+      const ariaLabel = item.getAttribute('aria-label')?.toLowerCase() || '';
+      const isGroupLabel = ariaLabel.includes('group') || ariaLabel.includes('grupo');
+
+      // If it has a group icon or label, it's definitely a group
+      // If not, we still capture it but maybe it's a contact
+      // The user said "only some contacts appear", so they might want to see everything
+      // but we should prioritize groups.
+      
+      if (isGroupLabel || hasGroupIcon || !/^\+?\d[\d\s-]{7,20}$/.test(name)) {
+        groups.push({
+          id: name,
+          name: name,
+          lastMessage: '',
+          isGroup: isGroupLabel || hasGroupIcon
+        });
+      }
     }
   });
   
-  console.log(`WhatsGroup Pro: Scraped ${groups.length} groups/chats`);
+  console.log(`Mkt Digital: Scraped ${groups.length} groups/chats`);
   return groups;
 }
 

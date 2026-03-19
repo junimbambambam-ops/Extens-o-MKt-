@@ -2,7 +2,7 @@ import { StorageService } from './services/storageService';
 import { AntiBanEngine } from './services/antiBanEngine';
 import { Campaign, LogEntry } from './types/index';
 
-console.log('WhatsGroup Pro: Background script loaded');
+console.log('Mkt Digital: Background script loaded');
 
 let activeCampaignId: string | null = null;
 let isPaused = false;
@@ -11,12 +11,18 @@ let isPaused = false;
  * Main campaign execution loop.
  */
 async function runCampaign(campaignId: string) {
+  if (activeCampaignId && activeCampaignId !== campaignId) {
+    console.log('Mkt Digital: Another campaign is already running');
+    return;
+  }
+  
   activeCampaignId = campaignId;
   isPaused = false;
   
   const campaigns = await StorageService.getCampaigns();
-  const campaign = campaigns.find(c => c.id === campaignId);
-  if (!campaign) return;
+  const campaignIndex = campaigns.findIndex(c => c.id === campaignId);
+  if (campaignIndex === -1) return;
+  const campaign = campaigns[campaignIndex];
 
   campaign.status = 'running';
   await StorageService.saveCampaigns(campaigns);
@@ -116,7 +122,7 @@ async function runCampaign(campaignId: string) {
   chrome.notifications.create({
     type: 'basic',
     iconUrl: 'icons/icon128.png',
-    title: 'WhatsGroup Pro',
+    title: 'Mkt Digital',
     message: `Campanha "${campaign.name}" concluída!`
   });
 }
@@ -125,6 +131,13 @@ async function runCampaign(campaignId: string) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'START_CAMPAIGN') {
     runCampaign(request.campaignId);
+    sendResponse({ success: true });
+  }
+  
+  if (request.action === 'SCHEDULE_CAMPAIGN') {
+    const { campaignId, scheduledAt } = request;
+    const delayInMinutes = Math.max(1, Math.round((scheduledAt - Date.now()) / 60000));
+    chrome.alarms.create(`campaign_${campaignId}`, { delayInMinutes });
     sendResponse({ success: true });
   }
   
