@@ -8,15 +8,16 @@ console.log('Mkt Digital: Content script loaded');
 // Selectors for WhatsApp Web elements (these may need updates as WA changes)
 const SELECTORS = {
   CHAT_LIST: '#pane-side',
-  SEARCH_INPUT: 'div[contenteditable="true"][data-tab="3"]',
+  SEARCH_INPUT: '#side div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"]',
   CHAT_ITEM: 'div[role="row"]',
   CHAT_NAME: 'span[title], div[title]',
-  CHAT_HEADER_NAME: 'header span[title], header div[title], header div[role="button"] span[title]',
-  INPUT_FIELD: 'footer div[contenteditable="true"]',
-  SEND_BUTTON: 'span[data-icon="send"], button[aria-label="Send"], [data-testid="send"], div[role="button"] span[data-icon="send"]',
-  ATTACH_BUTTON: 'span[data-icon="plus"], span[data-icon="clip"], [data-testid="conversation-clip"], div[aria-label="Attach"], div[aria-label="Anexar"]',
+  CHAT_HEADER_NAME: '#main header span[title], #main header div[title], #main header div[role="button"] span[title]',
+  INPUT_FIELD: '#main footer div[contenteditable="true"]',
+  SEND_BUTTON: '#main footer span[data-icon="send"], #main footer button[aria-label="Send"], #main footer [data-testid="send"]',
+  ATTACH_BUTTON: '#main header span[data-icon="plus"], #main header span[data-icon="clip"], #main [data-testid="conversation-clip"], #main div[aria-label="Attach"], #main div[aria-label="Anexar"]',
   FILE_INPUT: 'input[type="file"]',
-  TYPING_INDICATOR: 'header div[title="typing..."]',
+  TYPING_INDICATOR: '#main header div[title="typing..."]',
+  SEARCH_CLEAR_BTN: 'button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"], span[data-icon="x-alt"], span[data-icon="search"]',
 };
 
 /**
@@ -376,11 +377,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const headerName = headerNameEl?.getAttribute('title') || headerNameEl?.textContent || '';
         console.log(`Mkt Digital: Current header name: "${headerName}"`);
         
-        const target = request.name.toLowerCase();
-        const current = headerName.toLowerCase();
+        const target = request.name.toLowerCase().trim();
+        const current = headerName.toLowerCase().trim();
         
         // Check for exact match or if target is a significant part of current
-        return current === target || current.includes(target);
+        return current === target || current.includes(target) || target.includes(current);
       };
 
       if (verifyHeader()) {
@@ -388,56 +389,77 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
       }
 
+      // 0. Close any open sidebars (like Profile Info) that might be confusing selectors
+      const closeSidebarBtn = document.querySelector('header span[data-icon="x"], button[aria-label="Close"], button[aria-label="Fechar"]') as HTMLElement;
+      if (closeSidebarBtn && !document.querySelector('#main')) {
+         // Only close if it's a sidebar and not the main chat
+         console.log('Mkt Digital: Closing sidebar...');
+         realClick(closeSidebarBtn);
+         await new Promise(r => setTimeout(r, 500));
+      }
+
       // 1. Try to find in visible list
-      let chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
-        .find(el => el.getAttribute('title')?.toLowerCase() === request.name.toLowerCase());
+      const chatElements = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME));
+      let chat = chatElements.find(el => el.getAttribute('title')?.toLowerCase().trim() === request.name.toLowerCase().trim());
       
       if (chat) {
-        const item = chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement;
+        const item = chat.closest('div[role="button"]') as HTMLElement || chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement;
         if (item) {
           console.log('Mkt Digital: Found chat in visible list, clicking...');
           realClick(item);
-          await new Promise(r => setTimeout(r, 1500));
+          await new Promise(r => setTimeout(r, 2000));
           if (verifyHeader()) return true;
         }
       }
 
       // 2. Try to use search bar
       console.log('Mkt Digital: Using search bar...');
+      
+      // Clear search first by clicking the "X" or "Search" icon if it acts as a toggle/clear
+      const clearBtn = document.querySelector(SELECTORS.SEARCH_CLEAR_BTN) as HTMLElement;
+      if (clearBtn) {
+        console.log('Mkt Digital: Clicking clear/search button...');
+        realClick(clearBtn);
+        await new Promise(r => setTimeout(r, 800));
+      }
+
       const searchInput = document.querySelector(SELECTORS.SEARCH_INPUT) as HTMLElement;
       if (searchInput) {
         searchInput.focus();
-        // Clear search first
+        // Force clear content
+        searchInput.innerText = '';
         document.execCommand('selectAll', false, undefined);
         document.execCommand('delete', false, undefined);
         
         await new Promise(r => setTimeout(r, 500));
+        
+        // Type the name
+        console.log(`Mkt Digital: Typing "${request.name}" into search...`);
         document.execCommand('insertText', false, request.name);
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         
         // Wait for search results
-        await new Promise(r => setTimeout(r, 2500));
+        await new Promise(r => setTimeout(r, 3000));
         
         // Look for exact match in search results
         const searchResults = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
-          .filter(el => el.getAttribute('title')?.toLowerCase() === request.name.toLowerCase());
+          .filter(el => el.getAttribute('title')?.toLowerCase().trim() === request.name.toLowerCase().trim());
         
         console.log(`Mkt Digital: Found ${searchResults.length} matches in search results`);
         
         if (searchResults.length > 0) {
-          // Click the first exact match
-          const item = searchResults[0].closest(SELECTORS.CHAT_ITEM) as HTMLElement;
+          // Click the actual button/item, not just the row
+          const item = searchResults[0].closest('div[role="button"]') as HTMLElement || searchResults[0].closest(SELECTORS.CHAT_ITEM) as HTMLElement;
           if (item) {
             console.log('Mkt Digital: Clicking search result...');
             realClick(item);
             
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2000));
             
             // Clear search to restore list
-            const clearBtn = document.querySelector('button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"], span[data-icon="x-alt"]') as HTMLElement;
-            if (clearBtn) {
-              console.log('Mkt Digital: Clearing search...');
-              realClick(clearBtn);
+            const finalClearBtn = document.querySelector(SELECTORS.SEARCH_CLEAR_BTN) as HTMLElement;
+            if (finalClearBtn) {
+              realClick(finalClearBtn);
             }
             
             await new Promise(r => setTimeout(r, 1000));
