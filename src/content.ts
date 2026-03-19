@@ -10,10 +10,10 @@ const SELECTORS = {
   CHAT_LIST: '#pane-side',
   SEARCH_INPUT: 'div[contenteditable="true"][data-tab="3"]',
   CHAT_ITEM: 'div[role="row"]',
-  CHAT_NAME: 'span[title]',
-  CHAT_HEADER_NAME: 'header span[title]',
+  CHAT_NAME: 'span[title], div[title]',
+  CHAT_HEADER_NAME: 'header span[title], header div[title], header div[role="button"] span[title]',
   INPUT_FIELD: 'footer div[contenteditable="true"]',
-  SEND_BUTTON: 'span[data-icon="send"], button[aria-label="Send"], [data-testid="send"]',
+  SEND_BUTTON: 'span[data-icon="send"], button[aria-label="Send"], [data-testid="send"], div[role="button"] span[data-icon="send"]',
   ATTACH_BUTTON: 'span[data-icon="plus"], span[data-icon="clip"], [data-testid="conversation-clip"], div[aria-label="Attach"], div[aria-label="Anexar"]',
   FILE_INPUT: 'input[type="file"]',
   TYPING_INDICATOR: 'header div[title="typing..."]',
@@ -66,7 +66,7 @@ async function sendFile(file: File, caption?: string) {
 
   if (caption) {
     console.log('Mkt Digital: Attempting to add caption');
-    const captionInput = document.querySelector('div[contenteditable="true"][data-tab="10"], div[contenteditable="true"][data-tab="6"]') as HTMLElement;
+    const captionInput = document.querySelector('div[contenteditable="true"][data-tab="10"], div[contenteditable="true"][data-tab="6"], div[contenteditable="true"][aria-label="Adicionar legenda"]') as HTMLElement;
     if (captionInput) {
       await simulateTyping(caption, captionInput);
       console.log('Mkt Digital: Caption typed');
@@ -97,16 +97,24 @@ async function sendFile(file: File, caption?: string) {
  */
 async function simulateTyping(text: string, element: HTMLElement) {
   element.focus();
-  const dataTransfer = new DataTransfer();
-  dataTransfer.setData('text/plain', text);
   
-  const event = new ClipboardEvent('paste', {
-    clipboardData: dataTransfer,
-    bubbles: true,
-    cancelable: true,
-  });
-  
-  element.dispatchEvent(event);
+  // Use execCommand for more reliable text insertion
+  try {
+    document.execCommand('insertText', false, text);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  } catch (e) {
+    console.warn('Mkt Digital: execCommand failed, falling back to paste');
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', text);
+    
+    const event = new ClipboardEvent('paste', {
+      clipboardData: dataTransfer,
+      bubbles: true,
+      cancelable: true,
+    });
+    
+    element.dispatchEvent(event);
+  }
   
   // Wait a bit to simulate processing
   await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
@@ -283,8 +291,8 @@ function injectUI() {
   const toggleBtn = document.createElement('div');
   toggleBtn.id = 'mkt-digital-toggle';
   toggleBtn.innerHTML = `
-    <div style="background: #10b981; color: white; padding: 12px; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <div style="background: #10b981; color: white; padding: 12px; border-radius: 50%; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 8px 25px rgba(16,185,129,0.4); font-size: 28px; transition: transform 0.2s ease;">
+      💰
     </div>
   `;
   toggleBtn.style.cssText = `
@@ -308,6 +316,14 @@ if (document.readyState === 'complete') {
 } else {
   window.addEventListener('load', injectUI);
 }
+
+// Keep UI alive if WhatsApp Web re-renders the body
+const observer = new MutationObserver(() => {
+  if (!document.getElementById('mkt-digital-container')) {
+    injectUI();
+  }
+});
+observer.observe(document.body, { childList: true });
 
 // Listen for messages from the background script or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -352,29 +368,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'SELECT_CHAT') {
-    const findAndClick = async () => {
+    const findAndClick = async (retryCount = 0): Promise<boolean> => {
+      console.log(`Mkt Digital: Attempting to select chat "${request.name}" (Attempt ${retryCount + 1})`);
+      
       const verifyHeader = () => {
-        const headerName = document.querySelector(SELECTORS.CHAT_HEADER_NAME)?.getAttribute('title');
-        return headerName === request.name;
+        const headerNameEl = document.querySelector(SELECTORS.CHAT_HEADER_NAME);
+        const headerName = headerNameEl?.getAttribute('title') || headerNameEl?.textContent || '';
+        console.log(`Mkt Digital: Current header name: "${headerName}"`);
+        
+        const target = request.name.toLowerCase();
+        const current = headerName.toLowerCase();
+        
+        // Check for exact match or if target is a significant part of current
+        return current === target || current.includes(target);
       };
 
-      if (verifyHeader()) return true;
+      if (verifyHeader()) {
+        console.log('Mkt Digital: Chat already selected');
+        return true;
+      }
 
       // 1. Try to find in visible list
       let chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
-        .find(el => el.getAttribute('title') === request.name);
+        .find(el => el.getAttribute('title')?.toLowerCase() === request.name.toLowerCase());
       
       if (chat) {
         const item = chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement;
         if (item) {
+          console.log('Mkt Digital: Found chat in visible list, clicking...');
           realClick(item);
-          // Wait a bit and verify
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1500));
           if (verifyHeader()) return true;
         }
       }
 
       // 2. Try to use search bar
+      console.log('Mkt Digital: Using search bar...');
       const searchInput = document.querySelector(SELECTORS.SEARCH_INPUT) as HTMLElement;
       if (searchInput) {
         searchInput.focus();
@@ -382,28 +411,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         document.execCommand('selectAll', false, undefined);
         document.execCommand('delete', false, undefined);
         
+        await new Promise(r => setTimeout(r, 500));
         document.execCommand('insertText', false, request.name);
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         
         // Wait for search results
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 2500));
         
-        chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
-          .find(el => el.getAttribute('title') === request.name);
-          
-        if (chat) {
-          const item = chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement;
+        // Look for exact match in search results
+        const searchResults = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
+          .filter(el => el.getAttribute('title')?.toLowerCase() === request.name.toLowerCase());
+        
+        console.log(`Mkt Digital: Found ${searchResults.length} matches in search results`);
+        
+        if (searchResults.length > 0) {
+          // Click the first exact match
+          const item = searchResults[0].closest(SELECTORS.CHAT_ITEM) as HTMLElement;
           if (item) {
+            console.log('Mkt Digital: Clicking search result...');
             realClick(item);
             
-            // Clear search
-            const clearBtn = document.querySelector('button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"]') as HTMLElement;
-            if (clearBtn) realClick(clearBtn);
+            await new Promise(r => setTimeout(r, 1500));
+            
+            // Clear search to restore list
+            const clearBtn = document.querySelector('button[aria-label="Cancel search"], button[aria-label="Cancelar pesquisa"], span[data-icon="x-alt"]') as HTMLElement;
+            if (clearBtn) {
+              console.log('Mkt Digital: Clearing search...');
+              realClick(clearBtn);
+            }
             
             await new Promise(r => setTimeout(r, 1000));
-            return verifyHeader();
+            if (verifyHeader()) return true;
           }
         }
+      }
+      
+      if (retryCount < 2) {
+        console.log('Mkt Digital: Retrying selection...');
+        await new Promise(r => setTimeout(r, 2000));
+        return findAndClick(retryCount + 1);
       }
       
       return false;

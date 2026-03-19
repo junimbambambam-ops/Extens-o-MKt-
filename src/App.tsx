@@ -32,7 +32,9 @@ import {
   X,
   FileText,
   Image as ImageIcon,
-  TrendingUp
+  TrendingUp,
+  Globe,
+  ExternalLink
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -99,13 +101,8 @@ const Badge = ({ children, variant = 'default' }: any) => {
 };
 
 const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
-  <div className={`${className} bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20 overflow-hidden border border-white/10`}>
-    <img 
-      src="https://japevuckvzjehuajbudw.supabase.co/storage/v1/object/public/meu%20Site/WhatsApp%20Image%202022-01-27%20at%2011.38.56.jpeg" 
-      alt="Mkt Digital Logo" 
-      className="w-full h-full object-cover"
-      referrerPolicy="no-referrer"
-    />
+  <div className={`${className} bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20 overflow-hidden border border-white/10 text-2xl`}>
+    💰
   </div>
 );
 
@@ -770,6 +767,24 @@ export default function App() {
     );
   };
 
+  const testGroupSelection = async (groupName: string) => {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]?.id) {
+        const response = await chrome.tabs.sendMessage(tabs[0].id, { action: 'SELECT_CHAT', name: groupName });
+        if (response?.success) {
+          setNotification({ message: `Grupo "${groupName}" selecionado com sucesso!`, type: 'success' });
+        } else {
+          setNotification({ message: `Falha ao selecionar "${groupName}": ${response?.error || 'Não encontrado'}`, type: 'error' });
+        }
+        setTimeout(() => setNotification(null), 3000);
+      }
+    } catch (e) {
+      setNotification({ message: 'Erro ao testar seleção. Certifique-se de estar no WhatsApp Web.', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
   const renderGroups = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -936,6 +951,17 @@ export default function App() {
                     </td>
                     <td className="py-4 text-right">
                       <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => testGroupSelection(group.name)}
+                          className={`p-2 rounded-lg transition-colors ${
+                            settings?.theme === 'dark' 
+                              ? 'hover:bg-emerald-500/10 text-emerald-500' 
+                              : 'hover:bg-emerald-500/10 text-emerald-500'
+                          }`}
+                          title="Testar seleção no WhatsApp"
+                        >
+                          <ExternalLink size={18} />
+                        </button>
                         <button 
                           onClick={() => toggleFavorite(group.id)}
                           className={`p-2 rounded-lg transition-colors ${
@@ -1224,7 +1250,7 @@ export default function App() {
               Desempenho por Campanha
             </h3>
             <div className="flex-1 min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={100}>
                 <BarChart data={campaignData}>
                   <CartesianGrid strokeDasharray="3 3" stroke={settings?.theme === 'dark' ? '#27272a' : '#e4e4e7'} vertical={false} />
                   <XAxis 
@@ -1263,7 +1289,7 @@ export default function App() {
               Tendência de Envios
             </h3>
             <div className="flex-1 min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={100}>
                 <AreaChart data={trendData}>
                   <defs>
                     <linearGradient id="colorEnviados" x1="0" y1="0" x2="0" y2="1">
@@ -1312,7 +1338,7 @@ export default function App() {
           <Card theme={settings?.theme} className="lg:col-span-1 h-[400px] flex flex-col">
             <h3 className="text-lg font-bold mb-6">Status Geral</h3>
             <div className="flex-1 min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={100}>
                 <PieChart>
                   <Pie
                     data={[
@@ -1452,12 +1478,24 @@ export default function App() {
           <X size={20} />
         </button>
 
-        <div className="flex flex-col mb-10 px-2 space-y-1">
-          <div className="flex items-center space-x-3">
-            <Logo />
-            <h1 className="text-xl font-bold tracking-tight">Mkt <span className="text-emerald-500">Digital</span></h1>
+        <div className="flex flex-col mb-10 px-2">
+          <div className="flex items-center space-x-3 mb-2">
+            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20 overflow-hidden border border-white/10 text-2xl">
+              💰
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-xl font-bold tracking-tight">Mkt <span className="text-emerald-500">Digital</span></h1>
+              <a 
+                href="https://www.mktdigital.uk" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center space-x-1 text-[10px] text-zinc-500 hover:text-emerald-500 transition-colors"
+              >
+                <Globe size={10} />
+                <span>www.mktdigital.uk</span>
+              </a>
+            </div>
           </div>
-          <p className="text-[10px] text-zinc-500 font-medium pl-13">www.mktdigital.uk</p>
         </div>
 
         <nav className="flex-1 space-y-2">
