@@ -21,8 +21,17 @@ async function runCampaign(campaignId: string) {
   
   const campaigns = await StorageService.getCampaigns();
   const campaignIndex = campaigns.findIndex(c => c.id === campaignId);
-  if (campaignIndex === -1) return;
+  if (campaignIndex === -1) {
+    activeCampaignId = null;
+    return;
+  }
   const campaign = campaigns[campaignIndex];
+
+  // Reset stats if starting a completed or failed campaign
+  if (campaign.status === 'completed' || campaign.status === 'error') {
+    campaign.stats.sent = 0;
+    campaign.stats.failed = 0;
+  }
 
   campaign.status = 'running';
   await StorageService.saveCampaigns(campaigns);
@@ -44,14 +53,33 @@ async function runCampaign(campaignId: string) {
     const tabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
     if (tabs.length === 0) {
       console.error('WhatsApp Web tab not found');
+      campaign.status = 'error';
+      await StorageService.saveCampaigns(campaigns);
       break;
     }
     const tabId = tabs[0].id!;
 
     try {
       // Select the chat
-      await chrome.tabs.sendMessage(tabId, { action: 'SELECT_CHAT', name: groupName });
-      await new Promise(r => setTimeout(r, 2000)); // Wait for chat to load
+      const selectResponse = await chrome.tabs.sendMessage(tabId, { action: 'SELECT_CHAT', name: groupName });
+      
+      if (!selectResponse || !selectResponse.success) {
+        console.warn(`Mkt Digital: Chat "${groupName}" not found or failed to select`);
+        campaign.stats.failed++;
+        await StorageService.addLog({
+          id: Math.random().toString(36).substr(2, 9),
+          campaignId,
+          groupId: groupName,
+          groupName,
+          status: 'error',
+          timestamp: Date.now(),
+          error: selectResponse?.error || 'Chat não encontrado na lista visível'
+        });
+        await StorageService.saveCampaigns(campaigns);
+        continue; // Skip to next group
+      }
+
+      await new Promise(r => setTimeout(r, 3000)); // Wait for chat to load
 
       // 2. Prepare Message
       let message = campaign.messages[Math.floor(Math.random() * campaign.messages.length)];
@@ -72,7 +100,7 @@ async function runCampaign(campaignId: string) {
         } : undefined
       });
 
-      if (response.success) {
+      if (response && response.success) {
         sentCount++;
         campaign.stats.sent++;
         await StorageService.addLog({
@@ -92,7 +120,7 @@ async function runCampaign(campaignId: string) {
           groupName,
           status: 'error',
           timestamp: Date.now(),
-          error: response.error
+          error: response?.error || 'Falha ao enviar mensagem'
         });
       }
 
@@ -100,13 +128,32 @@ async function runCampaign(campaignId: string) {
 
       // 4. Anti-Ban Delays
       if (sentCount < targetGroups.length) {
+        let delay = 0;
         if (AntiBanEngine.shouldPause(sentCount, campaign.settings)) {
+          delay = campaign.settings.pauseDuration * 60 * 1000;
           console.log(`Campaign paused for ${campaign.settings.pauseDuration} minutes`);
-          await new Promise(r => setTimeout(r, campaign.settings.pauseDuration * 60 * 1000));
         } else {
-          const delay = AntiBanEngine.getRandomDelay(campaign.settings);
+          delay = AntiBanEngine.getRandomDelay(campaign.settings);
           console.log(`Waiting ${delay / 1000}s before next message`);
-          await new Promise(r => setTimeout(r, delay));
+        }
+
+        // Update nextActionAt for UI
+        const nextActionAt = Date.now() + delay;
+        const currentCampaigns = await StorageService.getCampaigns();
+        const currentIdx = currentCampaigns.findIndex(c => c.id === campaignId);
+        if (currentIdx !== -1) {
+          currentCampaigns[currentIdx].nextActionAt = nextActionAt;
+          await StorageService.saveCampaigns(currentCampaigns);
+        }
+
+        await new Promise(r => setTimeout(r, delay));
+        
+        // Clear nextActionAt after delay
+        const finalCampaigns = await StorageService.getCampaigns();
+        const finalIdx = finalCampaigns.findIndex(c => c.id === campaignId);
+        if (finalIdx !== -1) {
+          delete finalCampaigns[finalIdx].nextActionAt;
+          await StorageService.saveCampaigns(finalCampaigns);
         }
       }
 
@@ -116,6 +163,7 @@ async function runCampaign(campaignId: string) {
   }
 
   campaign.status = 'completed';
+  delete campaign.nextActionAt;
   await StorageService.saveCampaigns(campaigns);
   activeCampaignId = null;
   

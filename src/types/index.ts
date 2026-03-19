@@ -18,8 +18,9 @@ export interface Campaign {
     filename: string;
   };
   targetGroups: string[];
-  status: 'draft' | 'scheduled' | 'running' | 'paused' | 'completed' | 'failed';
+  status: 'draft' | 'scheduled' | 'running' | 'paused' | 'completed' | 'failed' | 'error';
   scheduledAt?: number;
+  nextActionAt?: number;
   createdAt: number;
   stats: {
     total: number;

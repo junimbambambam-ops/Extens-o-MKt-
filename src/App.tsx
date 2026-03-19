@@ -109,6 +109,31 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
   </div>
 );
 
+const CountdownTimer = ({ targetTime }: { targetTime: number }) => {
+  const [timeLeft, setTimeLeft] = useState(Math.max(0, Math.round((targetTime - Date.now()) / 1000)));
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.round((targetTime - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining <= 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [targetTime]);
+
+  if (timeLeft <= 0) return null;
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+
+  return (
+    <div className="flex items-center space-x-2 text-xs font-bold text-emerald-500 animate-pulse bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+      <Clock size={12} />
+      <span>Próximo envio em {minutes}:{seconds.toString().padStart(2, '0')}</span>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 export default function App() {
@@ -928,10 +953,14 @@ export default function App() {
                     <Badge variant={
                       camp.status === 'completed' ? 'success' : 
                       camp.status === 'running' ? 'info' : 
-                      camp.status === 'paused' ? 'warning' : 'default'
+                      camp.status === 'paused' ? 'warning' : 
+                      camp.status === 'error' ? 'danger' : 'default'
                     }>
                       {camp.status.toUpperCase()}
                     </Badge>
+                    {camp.status === 'running' && camp.nextActionAt && (
+                      <CountdownTimer targetTime={camp.nextActionAt} />
+                    )}
                   </div>
                   <p className={`text-sm ${settings?.theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
                     {camp.targetGroups.length} grupos selecionados • {camp.scheduledAt ? `Agendada para ${new Date(camp.scheduledAt).toLocaleString()}` : `Criada em ${new Date(camp.createdAt).toLocaleDateString()}`}

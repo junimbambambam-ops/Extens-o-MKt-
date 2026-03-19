@@ -8,7 +8,8 @@ console.log('Mkt Digital: Content script loaded');
 // Selectors for WhatsApp Web elements (these may need updates as WA changes)
 const SELECTORS = {
   CHAT_LIST: '#pane-side',
-  CHAT_ITEM: 'div[role="row"]', // More stable selector for chat items
+  SEARCH_INPUT: 'div[contenteditable="true"][data-tab="3"]',
+  CHAT_ITEM: 'div[role="row"]',
   CHAT_NAME: 'span[title]',
   INPUT_FIELD: 'footer div[contenteditable="true"]',
   SEND_BUTTON: 'footer button span[data-icon="send"]',
@@ -184,14 +185,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'SELECT_CHAT') {
-    const chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
-      .find(el => el.getAttribute('title') === request.name);
-    
-    if (chat) {
-      (chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement)?.click();
-      sendResponse({ success: true });
-    } else {
-      sendResponse({ success: false, error: 'Chat not found' });
-    }
+    const findAndClick = async () => {
+      // 1. Try to find in visible list
+      let chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
+        .find(el => el.getAttribute('title') === request.name);
+      
+      if (chat) {
+        (chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement)?.click();
+        return true;
+      }
+
+      // 2. Try to use search bar
+      const searchInput = document.querySelector(SELECTORS.SEARCH_INPUT) as HTMLElement;
+      if (searchInput) {
+        searchInput.focus();
+        document.execCommand('insertText', false, request.name);
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Wait for search results
+        await new Promise(r => setTimeout(r, 2000));
+        
+        chat = Array.from(document.querySelectorAll(SELECTORS.CHAT_NAME))
+          .find(el => el.getAttribute('title') === request.name);
+          
+        if (chat) {
+          (chat.closest(SELECTORS.CHAT_ITEM) as HTMLElement)?.click();
+          
+          // Clear search
+          const clearBtn = document.querySelector('button[aria-label="Cancel search"]') as HTMLElement;
+          if (clearBtn) clearBtn.click();
+          
+          return true;
+        }
+      }
+      
+      return false;
+    };
+
+    findAndClick()
+      .then(found => sendResponse({ success: found, error: found ? undefined : 'Chat não encontrado' }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
   }
 });
