@@ -114,6 +114,7 @@ const Logo = ({ className = "w-10 h-10" }: { className?: string }) => (
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -174,6 +175,33 @@ export default function App() {
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsText(file);
+  };
+
+  const toggleSelectGroup = (groupId: string) => {
+    setSelectedGroupIds(prev => 
+      prev.includes(groupId) 
+        ? prev.filter(id => id !== groupId) 
+        : [...prev, groupId]
+    );
+  };
+
+  const toggleSelectAllGroups = () => {
+    if (selectedGroupIds.length === groups.length && groups.length > 0) {
+      setSelectedGroupIds([]);
+    } else {
+      setSelectedGroupIds(groups.map(g => g.id));
+    }
+  };
+
+  const deleteSelectedGroups = async () => {
+    if (selectedGroupIds.length === 0) return;
+    
+    const updated = groups.filter(g => !selectedGroupIds.includes(g.id));
+    await StorageService.saveGroups(updated);
+    setGroups(updated);
+    setSelectedGroupIds([]);
+    setNotification({ message: `${selectedGroupIds.length} grupos excluídos com sucesso!`, type: 'success' });
+    setTimeout(() => setNotification(null), 3000);
   };
 
   const addManualGroup = async () => {
@@ -661,6 +689,15 @@ export default function App() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          {selectedGroupIds.length > 0 && (
+            <button 
+              onClick={deleteSelectedGroups}
+              className="flex items-center space-x-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg transition-colors shadow-lg shadow-rose-600/20"
+            >
+              <Trash2 size={18} />
+              <span>Excluir ({selectedGroupIds.length})</span>
+            </button>
+          )}
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -710,6 +747,14 @@ export default function App() {
           <table className="w-full text-left">
             <thead>
               <tr className={`text-sm border-b ${settings?.theme === 'dark' ? 'text-zinc-500 border-zinc-800' : 'text-zinc-400 border-zinc-100'}`}>
+                <th className="pb-4 font-medium w-10">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                    checked={groups.length > 0 && selectedGroupIds.length === groups.length}
+                    onChange={toggleSelectAllGroups}
+                  />
+                </th>
                 <th className="pb-4 font-medium">Nome do Grupo</th>
                 <th className="pb-4 font-medium">Última Mensagem</th>
                 <th className="pb-4 font-medium">Status</th>
@@ -719,7 +764,7 @@ export default function App() {
             <tbody className={`divide-y ${settings?.theme === 'dark' ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
               {groups.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-12 text-center">
+                  <td colSpan={5} className="py-12 text-center">
                     <div className="max-w-md mx-auto space-y-4">
                       <div className={`p-6 rounded-2xl border ${settings?.theme === 'dark' ? 'bg-zinc-800/20 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
                         <Users size={48} className="mx-auto mb-4 opacity-20" />
@@ -768,7 +813,15 @@ export default function App() {
                 </tr>
               ) : (
                 groups.map(group => (
-                  <tr key={group.id} className={`group transition-colors ${settings?.theme === 'dark' ? 'hover:bg-zinc-800/30' : 'hover:bg-zinc-50'}`}>
+                  <tr key={group.id} className={`group transition-colors ${settings?.theme === 'dark' ? 'hover:bg-zinc-800/30' : 'hover:bg-zinc-50'} ${selectedGroupIds.includes(group.id) ? (settings?.theme === 'dark' ? 'bg-emerald-500/5' : 'bg-emerald-50') : ''}`}>
+                    <td className="py-4">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+                        checked={selectedGroupIds.includes(group.id)}
+                        onChange={() => toggleSelectGroup(group.id)}
+                      />
+                    </td>
                     <td className="py-4">
                       <div className="flex items-center space-x-3">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${
@@ -816,6 +869,23 @@ export default function App() {
                           title={group.isExcluded ? "Remover da Lista Negra" : "Excluir de Disparos"}
                         >
                           <AlertTriangle size={18} />
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            const updated = groups.filter(g => g.id !== group.id);
+                            await StorageService.saveGroups(updated);
+                            setGroups(updated);
+                            setNotification({ message: 'Grupo excluído com sucesso!', type: 'success' });
+                            setTimeout(() => setNotification(null), 3000);
+                          }}
+                          className={`p-2 rounded-lg transition-colors ${
+                            settings?.theme === 'dark' 
+                              ? 'hover:bg-rose-500/10 text-rose-500' 
+                              : 'hover:bg-rose-500/10 text-rose-500'
+                          }`}
+                          title="Excluir Grupo"
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
